@@ -1,18 +1,25 @@
-struct SegTree<'a> {
+use std::marker::Sized;
+use std::ops::{Add, AddAssign, Div, Mul, Sub};
+
+struct SegTree<'a, T> {
     n: usize,
-    nums: &'a Vec<i32>,
-    tree: Vec<i32>,
-    lazy: Vec<i32>,
+    nums: &'a Vec<T>,
+    tree: Vec<T>,
+    lazy: Vec<T>,
 }
 
-impl<'a> SegTree<'a> {
-    fn new(nums: &'a Vec<i32>) -> Self {
+impl<'a, T> SegTree<'a, T>
+where
+    T: Default + Sized + Copy + Add<Output = T> + Mul<Output = T> + Eq + AddAssign + From<usize>,
+{
+    fn new(nums: &'a Vec<T>) -> Self {
         let n = nums.len();
+
         let mut obj = SegTree {
             n,
             nums,
-            lazy: vec![0; (n + 1) * 4],
-            tree: vec![0; (n + 1) * 4],
+            lazy: vec![T::default(); (n + 1) * 4],
+            tree: vec![T::default(); (n + 1) * 4],
         };
         obj.build(1, n - 1, 1);
         obj
@@ -23,15 +30,15 @@ impl<'a> SegTree<'a> {
     }
 
     fn pushdown(&mut self, l: usize, r: usize, p: usize) {
-        if l == r || self.lazy[p] == 0 {
+        if l == r || self.lazy[p] == T::default() {
             return;
         }
-        let tmp = self.lazy[p];
+        let tmp: T = self.lazy[p];
         let m = l + (r - l) / 2;
-        self.tree[p * 2] += tmp * ((m - l + 1) as i32);
-        self.tree[p * 2 + 1] += tmp * ((r - m) as i32);
+        self.tree[p * 2] += tmp * T::from(m - l + 1);
+        self.tree[p * 2 + 1] += tmp * T::from(r - m);
 
-        self.lazy[p] = 0;
+        self.lazy[p] = T::default();
         self.lazy[p * 2] += tmp;
         self.lazy[p * 2 + 1] += tmp;
     }
@@ -47,13 +54,13 @@ impl<'a> SegTree<'a> {
         self.pushup(p);
     }
 
-    fn range_query(&mut self, l: usize, r: usize, cl: usize, cr: usize, p: usize) -> i32 {
+    fn range_query(&mut self, l: usize, r: usize, cl: usize, cr: usize, p: usize) -> T {
         if l <= cl && cr <= r {
             return self.tree[p];
         }
         self.pushdown(cl, cr, p);
         let m = cl + (cr - cl) / 2;
-        let mut res = 0;
+        let mut res: T = T::default();
         if l <= m {
             res += self.range_query(l, r, cl, m, p * 2);
         }
@@ -63,9 +70,9 @@ impl<'a> SegTree<'a> {
         res
     }
 
-    fn range_add(&mut self, l: usize, r: usize, cl: usize, cr: usize, p: usize, val: i32) {
+    fn range_add(&mut self, l: usize, r: usize, cl: usize, cr: usize, p: usize, val: T) {
         if l <= cl && cr <= r {
-            self.tree[p] += val * ((cr - cl + 1) as i32);
+            self.tree[p] += val * T::from(cr - cl + 1);
             self.lazy[p] += val;
             return;
         }
@@ -80,17 +87,17 @@ impl<'a> SegTree<'a> {
         self.pushup(p);
     }
 
-    pub fn query(&mut self, l: usize, r: usize) -> i32 {
+    pub fn query(&mut self, l: usize, r: usize) -> T {
         self.range_query(l, r, 1, self.n - 1, 1)
     }
 
-    pub fn add(&mut self, l: usize, r: usize, val: i32) {
+    pub fn add(&mut self, l: usize, r: usize, val: T) {
         self.range_add(l, r, 1, self.n - 1, 1, val)
     }
 }
 
 fn main() {
-    let nums = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+    let nums: Vec<usize> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
     let mut seg = SegTree::new(&nums);
     println!("{}", seg.query(1, 8));
     seg.add(1, 8, 10);
