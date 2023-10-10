@@ -1,6 +1,4 @@
 mod sort;
 mod tree;
 
-fn main() {
-    
-}
+fn main() {}
