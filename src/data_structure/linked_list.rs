@@ -1,6 +1,8 @@
 use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::rc::Rc;
+//use std::collections::linked_list
 
 type Node<T> = Rc<RefCell<LinkedListNode<T>>>;
 
@@ -73,7 +75,13 @@ where
         new_node.clone()
     }
 
-    pub fn earse(&mut self, pos: &Node<T>) {}
+    pub fn earse(&mut self, pos: &Node<T>) {
+        let pnext = pos.borrow().next.clone();
+        pos.borrow_mut().pre.as_ref().and_then(|p| {
+            p.borrow_mut().next = pnext;
+            None::<T>
+        });
+    }
 
     pub fn push_back(&mut self, val: T) -> Node<T> {
         let pos = self.tail.borrow().pre.clone().unwrap();
@@ -85,6 +93,52 @@ where
         let pos = self.head.clone();
         self.size += 1;
         self.insert_back(&pos, val)
+    }
+
+    pub fn iter(&self) -> Iter<T> {
+        Iter {
+            cur: self.head.clone(),
+        }
+    }
+}
+
+impl<T> LinkedList<T>
+where
+    T: PartialEq,
+{
+    pub fn find(&self, val: &T, start_pos: Option<Node<T>>) -> Option<Node<T>> {
+        let mut pos = start_pos.unwrap_or(self.head.clone());
+        let t_val = Some(val);
+        loop {
+            if Rc::ptr_eq(&pos, &self.tail) {
+                break;
+            }
+            if pos.borrow().val.as_ref() == t_val {
+                return Some(pos);
+            }
+            let next = pos.borrow().next.clone().unwrap();
+            pos = next;
+        }
+        None
+    }
+}
+
+struct Iter<T> {
+    cur: Node<T>,
+}
+
+impl<T> Iterator for Iter<T> {
+    type Item = Node<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.cur.borrow().next.clone();
+        if let Some(p) = next {
+            self.cur = p.clone();
+            if self.cur.borrow().val.is_none() {
+                return None;
+            }
+            return Some(self.cur.clone());
+        }
+        None
     }
 }
 
@@ -103,5 +157,28 @@ mod test {
             Rc::ptr_eq(&head.borrow().next.as_ref().unwrap(), &tail),
             true
         );
+    }
+
+    #[test]
+    fn test2() {
+        let mut link_list = LinkedList::<i32>::new();
+        link_list.push_back(1);
+        link_list.push_back(2);
+        link_list.push_back(3);
+        link_list.push_back(4);
+
+        let nums = link_list
+            .iter()
+            .map(|x| x.borrow().val.unwrap())
+            .collect::<Vec<i32>>();
+
+        assert_eq!(nums, [1, 2, 3, 4]);
+
+        let pos = link_list.find(&10, None);
+        assert_eq!(pos, None);
+
+        let pos = link_list.find(&1, None);
+        assert!(pos.is_some());
+        assert_eq!(pos.unwrap().borrow().val, Some(1));
     }
 }
