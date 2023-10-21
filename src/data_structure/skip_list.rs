@@ -87,13 +87,13 @@ where
         T: PartialOrd,
     {
         let mut node = unsafe { self.head.as_mut() };
-        let mut updates: Vec<Option<Node<T>>> = vec![None; self.max_height];
+        let mut updates: Vec<Option<Node<T>>> = vec![None; self.height + 1];
         for i in (0..self.height).rev() {
             loop {
                 if node.forwards[i].is_none() {
                     break;
                 }
-                let next_node = unsafe { node.forwards[i].unwrap().as_mut() };
+                let next_node = unsafe { node.forwards[i].as_mut().unwrap().as_mut() };
                 if next_node.val > val {
                     break;
                 }
