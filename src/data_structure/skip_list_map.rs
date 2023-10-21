@@ -63,7 +63,7 @@ impl<K, V> SkipListMap<K, V> {
     where
         K: PartialOrd,
     {
-        if self.height == 0 {
+        if self.len == 0 || self.height == 0 {
             return None;
         }
         let mut node = unsafe { self.head.as_ref() };
@@ -75,17 +75,17 @@ impl<K, V> SkipListMap<K, V> {
                     break;
                 }
                 let next_node_ref = unsafe { node.forwards[i].as_ref().unwrap().as_ref() };
+                if next_node_ref.key > *key {
+                    break;
+                }
 
                 iter_node = node.forwards[i].as_ref().unwrap();
                 node = next_node_ref;
-                if next_node_ref.key >= *key {
-                    break;
-                }
             }
         }
 
         if node.key < *key {
-            return None;
+            return node.forwards[0].clone();
         }
 
         return Some(iter_node.clone());
@@ -95,7 +95,7 @@ impl<K, V> SkipListMap<K, V> {
     where
         K: PartialOrd,
     {
-        if self.height == 0 {
+        if self.len == 0 || self.height == 0 {
             return None;
         }
         let mut node = unsafe { self.head.as_ref() };
@@ -107,40 +107,47 @@ impl<K, V> SkipListMap<K, V> {
                     break;
                 }
                 let next_node_ref = unsafe { node.forwards[i].as_ref().unwrap().as_ref() };
-                node = next_node_ref;
-                iter_node = node.forwards[i].as_ref().unwrap();
                 if next_node_ref.key > *key {
                     break;
                 }
+                node = next_node_ref;
+                iter_node = node.forwards[i].as_ref().unwrap();
+            }
+            if node.key > *key {
+                break;
             }
         }
 
         if node.key <= *key {
-            return None;
+            return node.forwards[0].clone();
         }
 
         return Some(iter_node.clone());
     }
 
-    fn contian(&self, key: K) -> bool
+    fn contain(&self, key: &K) -> bool
     where
         K: PartialOrd,
     {
         let it = self.lower_bound(&key);
         return it.is_some_and(|x| {
             let t_node = unsafe { x.as_ref() };
-            return t_node.key == key;
+            return t_node.key == *key && !std::ptr::eq(t_node, unsafe { self.head.as_ref() });
         });
     }
 
-    fn get_key(&self, key: K) -> Option<&V>
+    fn get_key(&self, key: &K) -> Option<&V>
     where
         K: PartialOrd,
     {
-        let it = self.lower_bound(&key);
+        let it = self.lower_bound(key);
 
         return it.map_or(None, |x| {
             let t_node = unsafe { x.as_ref() };
+            if t_node.key != *key || std::ptr::eq(t_node, unsafe { self.head.as_ref() }) {
+                return None;
+            }
+
             return Some(&t_node.val);
         });
     }
@@ -166,7 +173,7 @@ impl<K, V> SkipListMap<K, V> {
             updates[i] = NonNull::new(node);
         }
 
-        if node.key == key {
+        if node.key == key && unsafe { !std::ptr::eq(node, self.head.as_ref()) } {
             // update node
             node.val = val;
             return;
@@ -191,6 +198,50 @@ impl<K, V> SkipListMap<K, V> {
 
         self.len += 1;
     }
+
+    fn erase(&mut self, key: &K)
+    where
+        K: PartialOrd,
+    {
+        let mut node = unsafe { self.head.as_ref() };
+        let mut node_iter = &self.head;
+        let mut updates: Vec<Option<Node<K, V>>> = vec![None; self.height];
+
+        let mut find = false;
+        for i in (0..self.height).rev() {
+            loop {
+                if node.forwards[i].is_none() {
+                    break;
+                }
+                let next_node_ref = unsafe { node.forwards[i].as_ref().unwrap().as_ref() };
+                if next_node_ref.key >= *key {
+                    break;
+                }
+                node_iter = node.forwards[i].as_ref().unwrap();
+                node = next_node_ref;
+            }
+
+            node.forwards[i].as_ref().and_then(|x| {
+                let next_node_ref = unsafe { x.as_ref() };
+                if next_node_ref.key == *key {
+                    updates[i] = Some(node_iter.clone());
+                }
+                return Some(true);
+            });
+        }
+
+        updates
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, x)| x.is_some())
+            .for_each(|(lev, node)| {
+                let node_ref = unsafe { node.unwrap().as_mut() };
+                let next_node = node_ref.forwards[lev].as_mut();
+                let next_node_ref = unsafe { next_node.unwrap().as_mut() };
+                node_ref.forwards[lev] = next_node_ref.forwards[lev].clone();
+            });
+        self.len -= 1;
+    }
 }
 
 #[cfg(test)]
@@ -202,9 +253,76 @@ mod test {
         let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
         map.insert(10, 10);
         map.insert(2, 1);
-        assert!(map.contian(10));
-        assert!(map.contian(2));
-        assert_eq!(map.get_key(2), Some(&1));
-        assert_eq!(map.get_key(100), None);
+        map.insert(100, 10);
+        assert!(map.contain(&10));
+
+        assert_eq!(map.get_key(&101), None);
+
+        // test modify
+        assert_eq!(map.get_key(&10), Some(&10));
+        map.insert(10, 101);
+        assert_eq!(map.get_key(&10), Some(&101));
+    }
+
+    #[test]
+    fn test_float_keys() {
+        let mut map: SkipListMap<f32, i32> = SkipListMap::new(16);
+
+        // 插入浮点数键值对
+        map.insert(5.5, 5);
+        map.insert(3.14, 3);
+
+        // 测试包含键的情况
+        assert!(map.contain(&5.5));
+        assert!(map.contain(&3.14));
+        assert!(!map.contain(&999.99)); // 不存在的键
+
+        // 测试获取键对应的值
+        assert_eq!(map.get_key(&5.5), Some(&5));
+        assert_eq!(map.get_key(&3.14), Some(&3));
+        assert_eq!(map.get_key(&999.99), None); // 不存在的键
+    }
+
+    #[test]
+    fn test_many() {
+        let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
+        for i in 0..10000 {
+            map.insert(i, i * 2);
+        }
+
+        for i in 100..2000 {
+            map.erase(&i);
+            assert!(!map.contain(&i));
+        }
+    }
+
+    #[test]
+    fn test_del() {
+        let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
+        assert!(!map.contain(&i32::default()));
+        for i in 0..10 {
+            map.insert(i, i * i);
+            assert!(map.contain(&i));
+        }
+
+        for i in (0..10).rev() {
+            map.erase(&i);
+        }
+        for i in 0..10 {
+            assert!(!map.contain(&i));
+        }
+    }
+
+    #[test]
+    fn test_5() {
+        let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
+        for i in 10..100 {
+            map.insert(i, i);
+        }
+
+        for i in 0..8 {
+            assert!(!map.contain(&i));
+            assert_eq!(map.get_key(&i), None);
+        }
     }
 }
