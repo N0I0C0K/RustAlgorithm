@@ -242,6 +242,60 @@ impl<K, V> SkipListMap<K, V> {
             });
         self.len -= 1;
     }
+
+    fn iter_key(&self) -> IterKey<'_, K, V> {
+        IterKey {
+            cur: self.head.clone(),
+            maker: PhantomData,
+            maker1: PhantomData,
+        }
+    }
+
+    fn iter_key_val(&self) -> IterKeyVal<'_, K, V> {
+        IterKeyVal {
+            cur: self.head.clone(),
+            maker: PhantomData,
+            maker1: PhantomData,
+        }
+    }
+}
+
+struct IterKeyVal<'a, K, V> {
+    cur: Node<K, V>,
+    maker: PhantomData<&'a K>,
+    maker1: PhantomData<&'a V>,
+}
+
+impl<'a, K, V> Iterator for IterKeyVal<'a, K, V> {
+    type Item = (&'a K, &'a V);
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur_ref = unsafe { self.cur.as_ref() };
+        if let Some(next) = cur_ref.forwards[0] {
+            let next_ref = unsafe { next.as_ref() };
+            self.cur = next.clone();
+            return Some((&next_ref.key, &next_ref.val));
+        }
+        None
+    }
+}
+
+struct IterKey<'a, K, V> {
+    cur: Node<K, V>,
+    maker: PhantomData<&'a K>,
+    maker1: PhantomData<&'a V>,
+}
+
+impl<'a, K, V> Iterator for IterKey<'a, K, V> {
+    type Item = &'a K;
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur_ref = unsafe { self.cur.as_ref() };
+        if let Some(next) = cur_ref.forwards[0] {
+            let next_ref = unsafe { next.as_ref() };
+            self.cur = next.clone();
+            return Some(&next_ref.key);
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -324,5 +378,32 @@ mod test {
             assert!(!map.contain(&i));
             assert_eq!(map.get_key(&i), None);
         }
+    }
+
+    #[test]
+    fn test_iter_key() {
+        let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
+        for i in -100..100 {
+            map.insert(i, i);
+        }
+
+        let keys = map.iter_key().map(|x| *x).collect::<Vec<i32>>();
+        let except = (-100..100).collect::<Vec<i32>>();
+        assert_eq!(keys, except);
+    }
+
+    #[test]
+    fn test_iter_key_val() {
+        let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
+        for i in -100..100 {
+            map.insert(i, i);
+        }
+
+        let keys_val = map
+            .iter_key()
+            .map(|x| (*x, *x))
+            .collect::<Vec<(i32, i32)>>();
+        let except = (-100..100).map(|x| (x, x)).collect::<Vec<(i32, i32)>>();
+        assert_eq!(keys_val, except);
     }
 }

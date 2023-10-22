@@ -182,4 +182,10 @@ mod test {
 
         assert_eq!(exceped_list, list);
     }
+
+    #[test]
+    fn test3() {
+        let mut list = SkipList::<i32>::new(Some(16));
+        assert!(!list.contain(0));
+    }
 }
