@@ -125,6 +125,11 @@ impl<K, V> SkipListMap<K, V> {
         return Some(iter_node.clone());
     }
 
+    fn free_node(node: Node<K, V>) {
+        let boxed = unsafe { Box::from_raw(node.as_ptr()) };
+        std::mem::drop(boxed);
+    }
+
     fn contain(&self, key: &K) -> bool
     where
         K: PartialOrd,
@@ -207,7 +212,7 @@ impl<K, V> SkipListMap<K, V> {
         let mut node_iter = &self.head;
         let mut updates: Vec<Option<Node<K, V>>> = vec![None; self.height];
 
-        let mut find = false;
+        let mut target_ptr: Option<Node<K, V>> = None;
         for i in (0..self.height).rev() {
             loop {
                 if node.forwards[i].is_none() {
@@ -225,9 +230,16 @@ impl<K, V> SkipListMap<K, V> {
                 let next_node_ref = unsafe { x.as_ref() };
                 if next_node_ref.key == *key {
                     updates[i] = Some(node_iter.clone());
+                    if target_ptr.is_none() {
+                        target_ptr = Some(x.clone());
+                    }
                 }
                 return Some(true);
             });
+        }
+
+        if target_ptr.is_none() {
+            return;
         }
 
         updates
@@ -240,6 +252,8 @@ impl<K, V> SkipListMap<K, V> {
                 let next_node_ref = unsafe { next_node.unwrap().as_mut() };
                 node_ref.forwards[lev] = next_node_ref.forwards[lev].clone();
             });
+
+        Self::free_node(target_ptr.unwrap());
         self.len -= 1;
     }
 
@@ -256,6 +270,18 @@ impl<K, V> SkipListMap<K, V> {
             cur: self.head.clone(),
             maker: PhantomData,
             maker1: PhantomData,
+        }
+    }
+}
+
+impl<K, V> Drop for SkipListMap<K, V> {
+    fn drop(&mut self) {
+        let mut node = Some(self.head.clone());
+
+        while let Some(t_node) = node {
+            let node_ref = unsafe { t_node.as_ref() };
+            node = node_ref.forwards[0].clone();
+            Self::free_node(t_node);
         }
     }
 }
@@ -300,6 +326,7 @@ impl<'a, K, V> Iterator for IterKey<'a, K, V> {
 
 #[cfg(test)]
 mod test {
+
     use super::SkipListMap;
 
     #[test]
@@ -405,5 +432,16 @@ mod test {
             .collect::<Vec<(i32, i32)>>();
         let except = (-100..100).map(|x| (x, x)).collect::<Vec<(i32, i32)>>();
         assert_eq!(keys_val, except);
+    }
+
+    #[test]
+    fn test_drop() {
+        let mut map: SkipListMap<i32, i32> = SkipListMap::new(16);
+        for i in -100000..100000 {
+            map.insert(i, i);
+        }
+
+        assert!(map.len > 20000);
+        std::mem::drop(map);
     }
 }
