@@ -1,3 +1,5 @@
+use std::{mem::swap, ptr::NonNull};
+
 struct TreeNode<T> {
     val: T,
     left: Option<Box<TreeNode<T>>>,
@@ -11,6 +13,13 @@ impl<T> TreeNode<T> {
             left: None,
             right: None,
         }
+    }
+
+    fn is_leaf(&self) -> bool {
+        self.left.is_none() && self.right.is_none()
+    }
+    fn delete(&mut self) -> Option<&TreeNode<T>> {
+        None
     }
 }
 
@@ -63,6 +72,16 @@ where
             }
             return Some(x);
         });
+    }
+
+    fn delete(&mut self, target: T) {
+        if self.head.is_none() {
+            return;
+        }
+        let node = self.lower_bound(&target);
+        if node.is_none() || node.is_some_and(|t| t.val != target) {
+            return;
+        }
     }
 
     fn insert(&mut self, val: T) {
