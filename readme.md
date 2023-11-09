@@ -15,3 +15,4 @@
 - [跳表](src/data_structure/skip_list.rs)
 - [Map（基于跳表）](src/data_structure/skip_list_map.rs)
 - [二进制字典树](src/tree/binary_dict_tree.rs)
+- [Treap](src/tree/treap.rs)

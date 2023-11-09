@@ -15,7 +15,6 @@ enum ChildState {
     No,
     Left,
     Right,
-    LeftRight,
 }
 
 impl<T> Node<T> {
@@ -83,6 +82,10 @@ impl<T> Node<T> {
         }
         right
     }
+
+    /// only use for remove function
+    /// when have just no or one side, return the current side
+    /// otherwise, return the small side
     fn child_state(&self) -> ChildState {
         let mut r: u8 = 0;
         if self.left.is_some() {
@@ -95,25 +98,34 @@ impl<T> Node<T> {
             0 => ChildState::No,
             1 => ChildState::Left,
             2 => ChildState::Right,
-            3 => ChildState::LeftRight,
-            _ => ChildState::LeftRight,
+            3 => unsafe {
+                if self.left.as_ref().unwrap().as_ref().val
+                    <= self.right.as_ref().unwrap().as_ref().val
+                {
+                    ChildState::Left
+                } else {
+                    ChildState::Right
+                }
+            },
+            _ => ChildState::No,
         };
+    }
+
+    fn free(node: PNode<T>) {
+        unsafe {
+            let boxed = Box::from_raw(node.as_ptr());
+            std::mem::drop(boxed);
+        }
     }
 }
 
 impl<T> Drop for Node<T> {
     fn drop(&mut self) {
         if let Some(left) = self.left {
-            unsafe {
-                let boxed = Box::from_raw(left.as_ptr());
-                std::mem::drop(boxed);
-            }
+            Node::free(left);
         }
         if let Some(right) = self.right {
-            unsafe {
-                let boxed = Box::from_raw(right.as_ptr());
-                std::mem::drop(boxed);
-            }
+            Node::free(right);
         }
     }
 }
@@ -140,6 +152,7 @@ impl<T> Treap<T> {
         }
 
         let mut pnode = unsafe { node.as_mut().unwrap().as_mut() };
+        pnode.size += 1;
         match pnode.key.partial_cmp(&key).unwrap() {
             Ordering::Less => {
                 pnode.right = Some(self._insert(pnode.right, key));
@@ -166,7 +179,6 @@ impl<T> Treap<T> {
                     .unwrap_or(node.unwrap());
             }
             Ordering::Equal => {
-                pnode.size += 1;
                 pnode.cnt += 1;
                 return node.unwrap();
             }
@@ -193,10 +205,12 @@ impl<T> Treap<T> {
         match pnode.key.partial_cmp(&key).unwrap() {
             Ordering::Less => {
                 pnode.right = self._remove(pnode.right, key);
+                pnode.update_size();
                 return node;
             }
             Ordering::Greater => {
                 pnode.left = self._remove(pnode.left, key);
+                pnode.update_size();
                 return node;
             }
             Ordering::Equal => {
@@ -208,6 +222,7 @@ impl<T> Treap<T> {
 
                 match pnode.child_state() {
                     ChildState::No => {
+                        Node::free(node.unwrap());
                         return None;
                     }
                     ChildState::Left => {
@@ -215,27 +230,79 @@ impl<T> Treap<T> {
                         unsafe {
                             let p_nnode = nnode.as_mut();
                             p_nnode.right = self._remove(p_nnode.right, key);
+                            p_nnode.update_size();
                         };
+                        return Some(nnode);
                     }
                     ChildState::Right => {
                         let mut nnode = pnode.left_rotate();
                         unsafe {
                             let p_nnode = nnode.as_mut();
                             p_nnode.left = self._remove(p_nnode.left, key);
+                            p_nnode.update_size();
                         };
+                        return Some(nnode);
                     }
-                    ChildState::LeftRight => {}
                 }
             }
         }
-
-        return None;
     }
 
     pub fn remove(&mut self, key: T)
     where
         T: PartialOrd,
     {
+        self.head = self._remove(self.head, key);
+    }
+
+    pub fn size(&self) -> usize {
+        self.head
+            .and_then(|x| unsafe { Some(x.as_ref().size) })
+            .unwrap_or(0)
+    }
+
+    pub fn lower_bound(&self, key: T) -> Option<&T>
+    where
+        T: PartialOrd,
+    {
+        let mut res: Option<&T> = None;
+        let mut node = self.head.as_ref();
+        while let Some(pnode) = node {
+            let ref_node = unsafe { pnode.as_ref() };
+            if ref_node.key < key {
+                node = ref_node.right.as_ref();
+            } else {
+                res = Some(&ref_node.key);
+                node = ref_node.left.as_ref();
+            }
+        }
+
+        res
+    }
+
+    pub fn upper_bound(&self, key: T) -> Option<&T>
+    where
+        T: PartialOrd,
+    {
+        let mut res: Option<&T> = None;
+        let mut node = self.head.as_ref();
+        while let Some(pnode) = node {
+            let ref_node = unsafe { pnode.as_ref() };
+            if ref_node.key <= key {
+                node = ref_node.right.as_ref();
+            } else {
+                res = Some(&ref_node.key);
+                node = ref_node.left.as_ref();
+            }
+        }
+
+        res
+    }
+}
+
+impl<T> Drop for Treap<T> {
+    fn drop(&mut self) {
+        Node::free(self.head.unwrap());
     }
 }
 
@@ -270,5 +337,43 @@ mod test {
         treap.insert(12);
         treap.insert(100);
         treap.insert(23);
+        assert_eq!(treap.size(), 9);
+        treap.remove(10);
+        assert_eq!(treap.size(), 8);
+        treap.remove(10);
+        assert_eq!(treap.size(), 7);
+
+        treap.remove(-10);
+        assert_eq!(treap.size(), 6);
+
+        treap.remove(100);
+        assert_eq!(treap.size(), 5);
+    }
+
+    #[test]
+    fn test_2() {
+        let mut treap = Treap::<i32>::new();
+        treap.insert(10);
+        treap.insert(10);
+        treap.insert(10);
+
+        treap.insert(1);
+        treap.insert(3);
+        treap.insert(-10);
+        treap.insert(12);
+        treap.insert(100);
+        treap.insert(23);
+        assert_eq!(treap.lower_bound(-1000), Some(&-10));
+        assert_eq!(treap.lower_bound(1000), None);
+        assert_eq!(treap.lower_bound(1), Some(&1));
+
+        treap.remove(1);
+        assert_eq!(treap.lower_bound(1), Some(&3));
+
+        assert_eq!(treap.lower_bound(10), Some(&10));
+        treap.remove(10);
+        treap.remove(10);
+        treap.remove(10);
+        assert_eq!(treap.lower_bound(10), Some(&12));
     }
 }
